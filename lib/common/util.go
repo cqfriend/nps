@@ -2,13 +2,10 @@ package common
 
 import (
 	"bytes"
-	"ehang.io/nps/lib/version"
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/astaxie/beego"
-	"github.com/astaxie/beego/logs"
 	"html/template"
 	"io"
 	"io/ioutil"
@@ -20,6 +17,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"ehang.io/nps/lib/version"
+	"github.com/astaxie/beego"
+	"github.com/astaxie/beego/logs"
 
 	"ehang.io/nps/lib/crypt"
 )
@@ -456,7 +457,7 @@ func GetExternalIp() string {
 	if externalIp != "" {
 		return externalIp
 	}
-	resp, err := http.Get("http://myexternalip.com/raw")
+	resp, err := http.Get("http://v4.ipip.net")
 	if err != nil {
 		return ""
 	}
