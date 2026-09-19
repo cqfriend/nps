@@ -456,7 +456,7 @@ func GetExternalIp() string {
 	if externalIp != "" {
 		return externalIp
 	}
-	resp, err := http.Get("http://myexternalip.com/raw")
+	resp, err := http.Get("http://v4.ipip.net")
 	if err != nil {
 		return ""
 	}
