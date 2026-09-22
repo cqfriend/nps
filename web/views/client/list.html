@@ -22,6 +22,8 @@
                     <div id="toolbar">
                         <a href="{{.web_base_url}}/client/add" class="btn btn-primary dim">
                         <i class="fa fa-fw fa-lg fa-plus"></i> <span langtag="word-add"></span></a>
+                        <a href="#" data-toggle="modal" data-target="#batchAddModal" class="btn btn-info dim">
+                        <i class="fa fa-fw fa-lg fa-file-import"></i> <span langtag="word-batchadd"></span></a>
                         <a href="#" onclick="batchDelete('{{.web_base_url}}/client/del');return false;" class="btn btn-danger dim">
                         <i class="fa fa-fw fa-lg fa-trash"></i> <span langtag="word-batchdelete"></span></a>
                     </div>
@@ -38,6 +40,53 @@
         </div>
     </div>
 </div>
+
+{{if eq true .isAdmin}}
+<div class="modal inmodal fade" id="batchAddModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header" style="padding: 15px;">
+                <button type="button" class="close" data-dismiss="modal"><span aria-hidden="true">&times;</span><span class="sr-only">Close</span></button>
+                <h4 class="modal-title"><i class="fa fa-file-import"></i> <span langtag="word-batchadd"></span></h4>
+            </div>
+            <div class="modal-body" style="padding: 20px 25px;">
+                <div class="alert alert-info" style="font-size: 13px; line-height: 1.6; margin-bottom: 15px;">
+                    <strong><i class="fa fa-info-circle"></i> <span langtag="word-importformat"></span>：</strong><br>
+                    1. 每行一条记录，字段按英文逗号 <code>,</code> 分隔（兼容 Tab 制表符）。<br>
+                    2. <strong>主要字段顺序</strong>：<code>备注, Basic认证用户名, Basic认证密码, 唯一验证密钥</code><br>
+                    &emsp;选填项（流量/连接限制）：<code>流量限制(M), 带宽限制(KB/s), 最大连接数, 最大隧道数</code><br>
+                    3. <strong>简易模式</strong>：仅填写 <code>备注</code> 或 <code>备注,用户名,密码</code> 即可；密钥留空将由系统自动生成随机密钥。<br>
+                    4. 首行若是表头（含“备注”或“remark”）将自动忽略；以 <code>#</code> 开头的行为注释。
+                </div>
+
+                <div class="form-group" style="margin-bottom: 12px;">
+                    <div class="row">
+                        <div class="col-sm-7">
+                            <label class="control-label font-bold">导入本地文件 (.txt / .csv)：</label>
+                            <input type="file" id="batch_file_input" accept=".txt,.csv" class="form-control" style="padding: 4px; height: auto;">
+                        </div>
+                        <div class="col-sm-5 text-right" style="padding-top: 24px;">
+                            <button type="button" class="btn btn-default btn-sm" onclick="fillBatchExample()"><i class="fa fa-magic"></i> <span langtag="word-fillexample"></span></button>
+                            <button type="button" class="btn btn-default btn-sm" onclick="$('#batch_content').val('')"><i class="fa fa-eraser"></i> 清空</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 5px;">
+                    <label class="control-label font-bold">导入数据内容：</label>
+                    <textarea class="form-control" id="batch_content" rows="9" placeholder="备注,Basic认证用户名,Basic认证密码,唯一验证密钥&#10;client-01,admin,123456,custom_vkey_888&#10;client-02,testuser,pwd123456&#10;client-03" style="font-family: monospace; font-size: 13px; resize: vertical;"></textarea>
+                </div>
+
+                <div id="batch_result_box" style="display: none; margin-top: 15px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-white" data-dismiss="modal">关闭</button>
+                <button type="button" class="btn btn-primary" id="btn_do_batch_add" onclick="submitBatchAdd()"><i class="fa fa-check"></i> <span langtag="word-batchimport"></span></button>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}
 
 <script>
     /*bootstrap table*/
@@ -270,5 +319,77 @@
         toastr.error('复制失败', '提示');
     });
 
+    $('#batch_file_input').on('change', function (e) {
+        var file = e.target.files[0];
+        if (!file) return;
+        var reader = new FileReader();
+        reader.onload = function (evt) {
+            $('#batch_content').val(evt.target.result);
+        };
+        reader.readAsText(file, 'UTF-8');
+    });
+
+    function fillBatchExample() {
+        var example = "# 备注,Basic认证用户名,Basic认证密码,唯一验证密钥\n" +
+            "client-01,admin,123456,custom_vkey_888\n" +
+            "client-02,testuser,pwd123456\n" +
+            "client-03";
+        $('#batch_content').val(example);
+    }
+
+    function submitBatchAdd() {
+        var content = $('#batch_content').val();
+        if (!content || $.trim(content) === '') {
+            toastr.warning('请先输入或选择要导入的内容');
+            return;
+        }
+        var btn = $('#btn_do_batch_add');
+        btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> 导入中...');
+        $('#batch_result_box').hide().empty();
+
+        $.ajax({
+            type: "POST",
+            url: "{{.web_base_url}}/client/batchadd",
+            data: { content: content },
+            dataType: "json",
+            success: function (res) {
+                btn.prop('disabled', false).html('<i class="fa fa-check"></i> <span langtag="word-batchimport">导入</span>');
+                if (res.code === 1) {
+                    var d = res.data || {};
+                    var alertClass = d.fail > 0 ? 'alert-warning' : 'alert-success';
+                    var html = '<div class="alert ' + alertClass + '"><strong>' + res.msg + '</strong>';
+                    if (d.errors && d.errors.length > 0) {
+                        html += '<ul style="margin-top: 5px; margin-bottom: 0; padding-left: 20px;">';
+                        for (var i = 0; i < d.errors.length; i++) {
+                            html += '<li>' + d.errors[i] + '</li>';
+                        }
+                        html += '</ul>';
+                    }
+                    html += '</div>';
+                    $('#batch_result_box').html(html).show();
+                    toastr.success(res.msg);
+                    $('#table').bootstrapTable('refresh');
+                    if (d.fail === 0) {
+                        setTimeout(function () {
+                            $('#batchAddModal').modal('hide');
+                            $('#batch_content').val('');
+                            $('#batch_result_box').hide().empty();
+                        }, 1200);
+                    }
+                } else {
+                    toastr.error(res.msg || '导入失败');
+                    $('#batch_result_box').html('<div class="alert alert-danger">' + (res.msg || '导入失败') + '</div>').show();
+                }
+            },
+            error: function () {
+                btn.prop('disabled', false).html('<i class="fa fa-check"></i> <span langtag="word-batchimport">导入</span>');
+                toastr.error('网络请求异常，请稍后重试');
+            }
+        });
+    }
+
+    $('#batchAddModal').on('shown.bs.modal', function () {
+        $('body').setLang('#batchAddModal');
+    });
 
 </script>

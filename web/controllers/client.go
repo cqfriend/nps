@@ -1,6 +1,9 @@
 package controllers
 
 import (
+	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -250,3 +253,167 @@ func (s *ClientController) Del() {
 	server.DelClientConnect(id)
 	s.AjaxOk("delete success")
 }
+
+// ParseBatchClientLine 解析单行客户端导入数据
+// 主要格式: 备注, Basic认证用户名, Basic认证密码, 唯一验证密钥, 流量限制(M), 带宽限制(KB/s), 最大连接数, 最大隧道数
+func ParseBatchClientLine(line string) (*file.Client, error) {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return nil, nil
+	}
+	var fields []string
+	if strings.Contains(line, ",") {
+		fields = strings.Split(line, ",")
+	} else if strings.Contains(line, "\t") {
+		fields = strings.Split(line, "\t")
+	} else {
+		fields = []string{line}
+	}
+	for i := range fields {
+		fields[i] = strings.TrimSpace(fields[i])
+	}
+
+	remark := fields[0]
+	if remark == "" {
+		return nil, errors.New("remark cannot be empty")
+	}
+
+	var basicUser, basicPass, vkey string
+	if len(fields) > 1 {
+		basicUser = fields[1]
+	}
+	if len(fields) > 2 {
+		basicPass = fields[2]
+	}
+	if len(fields) > 3 {
+		vkey = fields[3]
+	}
+
+	parseIntField := func(idx int) int {
+		if idx < len(fields) && fields[idx] != "" {
+			if v, err := strconv.Atoi(fields[idx]); err == nil {
+				return v
+			}
+		}
+		return 0
+	}
+
+	flowLimit := parseIntField(4)
+	rateLimit := parseIntField(5)
+	maxConn := parseIntField(6)
+	maxTunnel := parseIntField(7)
+
+	configConnAllow := true
+	if len(fields) > 8 && fields[8] != "" {
+		val := strings.ToLower(fields[8])
+		if val == "0" || val == "false" || val == "否" || val == "no" {
+			configConnAllow = false
+		}
+	}
+
+	id := int(file.GetDb().JsonDb.GetClientId())
+	c := &file.Client{
+		Id:              id,
+		VerifyKey:       vkey,
+		Status:          true,
+		Remark:          remark,
+		Cnf: &file.Config{
+			U:        basicUser,
+			P:        basicPass,
+			Compress: true,
+			Crypt:    true,
+		},
+		ConfigConnAllow: configConnAllow,
+		RateLimit:       rateLimit,
+		MaxConn:         maxConn,
+		WebUserName:     "",
+		WebPassword:     "",
+		MaxTunnelNum:    maxTunnel,
+		Flow: &file.Flow{
+			ExportFlow: 0,
+			InletFlow:  0,
+			FlowLimit:  int64(flowLimit),
+		},
+		CreateTime: time.Now().Format("2006-01-02 15:04:05"),
+	}
+	return c, nil
+}
+
+func isBatchHeaderLine(line string) bool {
+	lower := strings.ToLower(line)
+	return strings.Contains(lower, "remark") || strings.Contains(line, "备注")
+}
+
+// 批量添加客户端
+func (s *ClientController) BatchAdd() {
+	if s.GetSession("isAdmin") == nil || !s.GetSession("isAdmin").(bool) {
+		s.AjaxErr("permission denied")
+		return
+	}
+	content := s.GetString("content")
+	content = strings.TrimSpace(content)
+	if content == "" {
+		s.AjaxErr("content cannot be empty")
+		return
+	}
+
+	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
+	var successCount, failCount int
+	var errMsgs []string
+
+	for idx, line := range lines {
+		lineNum := idx + 1
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "//") {
+			continue
+		}
+		if idx == 0 && isBatchHeaderLine(trimmed) {
+			continue
+		}
+
+		client, err := ParseBatchClientLine(trimmed)
+		if err != nil {
+			failCount++
+			errMsgs = append(errMsgs, fmt.Sprintf("Line %d: %s", lineNum, err.Error()))
+			continue
+		}
+		if client == nil {
+			continue
+		}
+
+		if client.WebUserName != "" {
+			if client.WebUserName == beego.AppConfig.String("web_username") || !file.GetDb().VerifyUserName(client.WebUserName, client.Id) {
+				failCount++
+				errMsgs = append(errMsgs, fmt.Sprintf("Line %d (%s): web username duplicated", lineNum, client.Remark))
+				continue
+			}
+		}
+
+		if client.VerifyKey != "" && !file.GetDb().VerifyVkey(client.VerifyKey, client.Id) {
+			failCount++
+			errMsgs = append(errMsgs, fmt.Sprintf("Line %d (%s): Vkey duplicated", lineNum, client.Remark))
+			continue
+		}
+
+		if err := file.GetDb().NewClient(client); err != nil {
+			failCount++
+			errMsgs = append(errMsgs, fmt.Sprintf("Line %d (%s): %s", lineNum, client.Remark, err.Error()))
+			continue
+		}
+		successCount++
+	}
+
+	data := map[string]interface{}{
+		"total":   successCount + failCount,
+		"success": successCount,
+		"fail":    failCount,
+		"errors":  errMsgs,
+	}
+	s.Data["json"] = map[string]interface{}{
+		"code": 1,
+		"msg":  fmt.Sprintf("Import finished: %d succeeded, %d failed", successCount, failCount),
+		"data": data,
+	}
+	s.ServeJSON()
+}
+

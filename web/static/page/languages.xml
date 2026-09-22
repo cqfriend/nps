@@ -842,6 +842,26 @@
 		<en-US>Batch Delete</en-US>
 	</lang>
 
+	<lang id="word-batchadd">
+		<zh-CN>批量添加</zh-CN>
+		<en-US>Batch Add</en-US>
+	</lang>
+
+	<lang id="word-batchimport">
+		<zh-CN>导入</zh-CN>
+		<en-US>Import</en-US>
+	</lang>
+
+	<lang id="word-fillexample">
+		<zh-CN>填入示例</zh-CN>
+		<en-US>Fill Example</en-US>
+	</lang>
+
+	<lang id="word-importformat">
+		<zh-CN>导入格式说明</zh-CN>
+		<en-US>Format Guide</en-US>
+	</lang>
+
 	<confirm>
 		<lang id="delete">
 			<zh-CN>你确定你要删除它吗？</zh-CN>
